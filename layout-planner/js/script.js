@@ -7,6 +7,7 @@ const cityCounter = document.getElementById('cityCounter');
 const buildingCounter = document.getElementById('buildingCounter');
 const hqCounter = document.getElementById('hqCounter');
 const nodeCounter = document.getElementById('nodeCounter');
+const mineCounter = document.getElementById('mineCounter');
 const saveButton = document.getElementById('saveButton');
 const loadButton = document.getElementById('loadButton');
 const mapData = document.getElementById('mapData');
@@ -55,6 +56,32 @@ let mapMode = 'base'; // 'base' or 'castle' (add island?)
 const castleReservedSize = 12; // Size of the reserved castle area
 const castleRedzoneThickness = 8; // Thickness of the redzone ring around the reserved area
 
+
+// ===== FURNACE LEVEL ICONS =====
+const furnaceIcons = {
+    1: new Image(),
+    2: new Image(),
+    3: new Image(),
+    4: new Image(),
+    5: new Image(),
+    6: new Image(),
+    7: new Image(),
+    8: new Image(),
+    9: new Image(),
+    10: new Image()
+};
+
+// Set up furnace icon sources
+furnaceIcons[1].src = '/layout-planner/images/fc1.png';
+furnaceIcons[2].src = '/layout-planner/images/fc2.png';
+furnaceIcons[3].src = '/layout-planner/images/fc3.png';
+furnaceIcons[4].src = '/layout-planner/images/fc4.png';
+furnaceIcons[5].src = '/layout-planner/images/fc5.png';
+furnaceIcons[6].src = '/layout-planner/images/fc6.png';
+furnaceIcons[7].src = '/layout-planner/images/fc7.png';
+furnaceIcons[8].src = '/layout-planner/images/fc8.png';
+furnaceIcons[9].src = '/layout-planner/images/fc9.png';
+furnaceIcons[10].src = '/layout-planner/images/fc10.png';
 
 // ==== WAVE COLORS ====
 const wavePalette = [
@@ -155,6 +182,7 @@ function updateCounters() {
     const buildings = entities.filter(entity => entity.type === 'building').length;
     const hqs = entities.filter(entity => entity.type === 'hq').length;
     const nodes = entities.filter(entity => entity.type === 'node').length;
+    const mines = entities.filter(entity => entity.type === 'mine').length;
 
     // Update desktop counters
     flagCounter.textContent = flags;
@@ -162,6 +190,7 @@ function updateCounters() {
     buildingCounter.textContent = buildings;
     hqCounter.textContent = hqs;
     nodeCounter.textContent = nodes;
+    mineCounter.textContent = mines;
 
     // Update mobile counters
     document.getElementById('mobileFlagCounter').textContent = flags;
@@ -409,6 +438,8 @@ function drawEntity(context, pX, pY, z, entity, protectedAreas) {
         drawNodeDetails(context, z, entity, centerScreen);
     } else if (entity.type === 'obstacle') {
         drawObstacleDetails(context, z, entity, centerScreen);
+    } else if (entity.type === 'mine') {
+        drawMineDetails(context, z, entity, centerScreen);
     }
     
     context.restore();
@@ -464,34 +495,207 @@ function drawGhostEntity(context, pX, pY, z, entity) {
     context.restore();
 }
 
+// Helper function to wrap text to fit within a maximum width
+function wrapText(context, text, maxWidth) {
+    // If text is empty, return an empty array
+    if (!text || text.length === 0) return [''];
+    
+    // For very short texts, no need to wrap
+    if (context.measureText(text).width <= maxWidth) {
+        return [text]; // Text fits as a single line
+    }
+    
+    // Force splitting text into chunks that fit the width
+    const lines = [];
+    // Try to split by spaces first
+    const words = text.split(' ');
+    
+    // Single word handling
+    if (words.length === 1) {
+        return forceWrapSingleWord(context, text, maxWidth);
+    }
+    
+    // Multiple words
+    let currentLine = '';
+    
+    // Process each word
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        // Test adding this word to the current line
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const { width } = context.measureText(testLine);
+        
+        if (width <= maxWidth) {
+            // Word fits, add it to the current line
+            currentLine = testLine;
+        } else {
+            // Word doesn't fit
+            if (currentLine === '') {
+                // This is a single word that's too long
+                const wrappedWord = forceWrapSingleWord(context, word, maxWidth);
+                lines.push(...wrappedWord);
+            } else {
+                // End current line and start new one
+                lines.push(currentLine);
+                // Check if this word alone is too long
+                if (context.measureText(word).width > maxWidth) {
+                    const wrappedWord = forceWrapSingleWord(context, word, maxWidth);
+                    lines.push(...wrappedWord);
+                    currentLine = '';
+                } else {
+                    currentLine = word;
+                }
+            }
+        }
+    }
+    
+    // Add the last line if needed
+    if (currentLine !== '') {
+        lines.push(currentLine);
+    }
+    
+    return lines;
+}
+
+// Force wrap a single word that's too long
+function forceWrapSingleWord(context, word, maxWidth) {
+    const result = [];
+    let currentPart = '';
+    
+    // Iterate through each character of the word
+    for (let i = 0; i < word.length; i++) {
+        const char = word[i];
+        const testPart = currentPart + char;
+        
+        if (context.measureText(testPart).width <= maxWidth) {
+            currentPart = testPart;
+        } else {
+            // This character would make the part too long
+            if (currentPart) {
+                result.push(currentPart);
+                currentPart = char;
+            } else {
+                // Even a single character is too wide - must add it anyway
+                result.push(char);
+                currentPart = '';
+            }
+        }
+    }
+    
+    // Add any remaining characters
+    if (currentPart) {
+        result.push(currentPart);
+    }
+    
+    return result;
+}
+
 function drawCityDetails(context, z, city, screen) {
     context.fillStyle = 'black';
     
-    // Scale font size, with minimum and maximum limits
+    // Calculate actual city dimensions
     const currentGridSize = baseGridSize * z;
-    const baseFontSize = Math.max(6, Math.min(16, currentGridSize * 0.25));
+    const cityRadius = currentGridSize * city.width / 2;
+    
+    // Increased font size scaling - using 26% of grid size
+    // with larger max size for better visibility
+    const baseFontSize = Math.max(8, Math.min(20, currentGridSize * 0.26));
+    
     context.font = `${baseFontSize}px Arial`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     
-    // Shift text upward to accommodate multiple bear trap times
-    const baseOffset = -currentGridSize * 0.2;
+    // More restrictive width - only 75% of the city's width to ensure text stays inside
+    const cityPixelWidth = currentGridSize * city.width * 0.75;
     
     const label = city.name || `City ${city.id}`;
-    context.fillText(label, screen.x, screen.y + baseOffset);
     
-    // Draw march times only if enabled
-    if (cityLabelMode === 'march') {
-        const marchTimes = calculateMarchTimes(city);
-
+    // Use the improved text wrapping function
+    const wrappedText = wrapText(context, label, cityPixelWidth);
+    
+    // Calculate text metrics
+    const lineHeight = baseFontSize * 1.1; // Add a small amount of line spacing
+    const textHeight = wrappedText.length * lineHeight;
+    
+    // Determine if we need to show march times
+    const marchTimes = (cityLabelMode === 'march') ? calculateMarchTimes(city) : [];
+    const hasMarchTimes = marchTimes.length > 0;
+    
+    // Calculate if we need to show a furnace level icon
+    const hasFurnaceIcon = city.furnaceLevel > 0 && city.furnaceLevel <= 10;
+    
+    // Position text in the center of the city - independent of the furnace icon
+    // Only account for march times when calculating vertical position
+    let baseOffset;
+    
+    if (hasMarchTimes) {
+        // Position the text higher to make room for march times
+        const totalContentHeight = textHeight + (marchTimes.length * lineHeight);
+        baseOffset = -totalContentHeight/2 + lineHeight/2;
+    } else {
+        // Center the text vertically
+        baseOffset = -textHeight/2 + lineHeight/2;
+    }
+    
+    // Draw each line of the wrapped text
+    wrappedText.forEach((line, index) => {
+        context.fillStyle = 'black';
+        context.font = `${baseFontSize}px Arial`;
+        
+        const yOffset = baseOffset + (index * lineHeight);
+        context.fillText(line, screen.x, screen.y + yOffset);
+    });
+    
+    // Track the next position to render content (for march times)
+    let nextYOffset = baseOffset + textHeight;
+    
+    // If there's a furnace level, draw the icon slightly below the top of the diamond city
+    if (hasFurnaceIcon) {
+        // Get the correct icon
+        const icon = furnaceIcons[city.furnaceLevel];
+        
+        if (icon.complete) {
+            // Calculate icon size - increased for better visibility
+            const furnaceIconSize = Math.max(16, Math.min(28, currentGridSize * 0.45));
+            
+            // Position icon slightly below the top point of the diamond
+            const iconX = screen.x; // Center horizontally
+            
+            // Position slightly lower than the top point (20% of the way from top to center)
+            const topPoint = screen.y - cityRadius;
+            const offsetFromTop = cityRadius * 0.5; // Move 20% of the radius down from the top
+            const iconY = topPoint + offsetFromTop;
+            
+            // Draw the icon centered on the adjusted position
+            context.drawImage(icon, iconX - furnaceIconSize/2, iconY - furnaceIconSize/2, 
+                              furnaceIconSize, furnaceIconSize);
+        }
+    }
+    
+    // Draw march times if enabled
+    if (hasMarchTimes) {
+        // Position march times below the city name
+        // Use a proportionally larger font size for march times
+        const marchTimesFontSize = Math.max(7, Math.min(16, currentGridSize * 0.22));
+        const marchTimesLineHeight = marchTimesFontSize * 1.1;
+        
         if (mapMode === 'castle') {
+            // In castle mode, only show the first march time
             if (marchTimes.length > 0) {
-                const yOffset = baseOffset + currentGridSize * 0.25;
+                context.fillStyle = 'black';
+                context.font = `${marchTimesFontSize}px Arial`;
+                context.textAlign = 'center';
+                const yOffset = nextYOffset;
                 context.fillText(`${marchTimes[0]}s`, screen.x, screen.y + yOffset);
             }
         } else {
+            // In normal mode, show all march times with BT labels
             marchTimes.forEach((time, index) => {
-                const yOffset = baseOffset + (index + 1) * currentGridSize * 0.25;
+                context.fillStyle = 'black';
+                context.font = `${marchTimesFontSize}px Arial`;
+                context.textAlign = 'center';
+                
+                const yOffset = nextYOffset + (index * marchTimesLineHeight);
                 context.fillText(`BT${index + 1}: ${time}s`, screen.x, screen.y + yOffset);
             });
         }
@@ -499,13 +703,20 @@ function drawCityDetails(context, z, city, screen) {
 
     // ---- Show city coordinates relative to anchor ----  
     if (cityLabelMode === 'coords') {
+        // Get the highest Y position where other content ends
+        let coordsYOffset = nextYOffset;
+        if (hasMarchTimes) {
+            coordsYOffset += marchTimes.length * lineHeight;
+        }
+        coordsYOffset += lineHeight * 0.5; // Add some spacing
+        
         const c = coordForCity(city);
-        const fs = Math.max(6, Math.min(14, baseGridSize * z * 0.22));
+        const fs = Math.max(8, Math.min(17, baseGridSize * z * 0.285));
         context.font = `${fs}px Arial`;
         context.textAlign = 'center';
         context.textBaseline = 'top';
         context.fillStyle = 'black';
-        context.fillText(`${c.x}:${c.y}`, screen.x, screen.y + fs*0.8);
+        context.fillText(`${c.x}:${c.y}`, screen.x, screen.y + coordsYOffset);
     }
 
 }
@@ -544,7 +755,19 @@ function drawNodeDetails(context, z, node, screen) {
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     
-    context.fillText('NODE', screen.x, screen.y);
+    context.fillText('ALLIANCE NODE', screen.x, screen.y);
+}
+
+function drawMineDetails(context, z, mine, screen) {
+    context.fillStyle = 'white';
+    
+    const currentGridSize = baseGridSize * z;
+    const baseFontSize = Math.max(5, Math.min(12, currentGridSize * 0.2));
+    context.font = `${baseFontSize}px Arial`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    
+    context.fillText('ALLIANCE MINE', screen.x, screen.y);
 }
 
 function drawObstacleDetails(context, z, obstacle, screen) {
@@ -556,6 +779,8 @@ function drawObstacleDetails(context, z, obstacle, screen) {
     context.font = `${baseFontSize}px Arial`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
+    
+    context.fillText('OBSTACLE', screen.x, screen.y);
 }
 
 function drawSelectionHighlight(context, pX, pY, z, entity) {
@@ -854,8 +1079,8 @@ function addEntity(event) {
         width = 2;
         height = 2;
     } else if (selectedType === 'building') {
-        if (bearTraps.length >= 2) {
-            alert('You can only place up to 2 Bear Traps.');
+        if (bearTraps.length >= 3) {
+            alert('You can only place up to 3 Bear Traps.');
             return;
         }
         color = 'black';
@@ -873,6 +1098,10 @@ function addEntity(event) {
         color = '#8B0000';
         width = 1;
         height = 1;
+    } else if (selectedType === 'mine') {
+        color = 'purple';
+        width = 2;
+        height = 2;
     }
 
     const newEntityTemplate = { x, y, width, height, type: selectedType };
@@ -883,8 +1112,12 @@ function addEntity(event) {
         }
         const newEntity = { ...newEntityTemplate, color, id };
 
-        if (selectedType === 'city' && !newEntity.name) {
-            newEntity.name = `City ${id}`;
+        if (selectedType === 'city') {
+            if (!newEntity.name) {
+                newEntity.name = `City ${id}`;
+            }
+            // Initialize with no furnace level (level 0)
+            newEntity.furnaceLevel = 0;
         }
 
         entities.push(newEntity);
@@ -944,8 +1177,9 @@ function handleWheel(event) {
     const mouseX = event.clientX - rect.left;
     const mouseY = event.clientY - rect.top;
     
-    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.max(0.1, Math.min(3, zoom * zoomFactor));
+    // Change zoom by 0.1 (10 percentage points) instead of using a zoom factor
+    const zoomChange = event.deltaY > 0 ? -0.1 : 0.1;
+    const newZoom = Math.max(0.1, Math.min(3, zoom + zoomChange));
     
     // Zoom towards mouse position
     const dx = mouseX - panX;
@@ -961,9 +1195,38 @@ function handleWheel(event) {
     updateZoomDisplay();
 }
 
+// Function to apply manual zoom from input
+function applyManualZoom(zoomValue) {
+    // Remove any non-numeric characters and convert to number
+    const numericValue = parseFloat(zoomValue.replace(/[^\d.]/g, ''));
+    
+    if (!isNaN(numericValue) && numericValue > 0) {
+        // Convert percentage to zoom factor (e.g., 100% -> 1.0)
+        const newZoom = Math.max(0.1, Math.min(3, numericValue / 100));
+        
+        // Apply zoom centered on canvas
+        const centerX = canvasWidth / 2;
+        const centerY = canvasHeight / 2;
+        const dx = centerX - panX;
+        const dy = centerY - panY;
+        
+        panX = centerX - dx * (newZoom / zoom);
+        panY = centerY - dy * (newZoom / zoom);
+        
+        zoom = newZoom;
+        gridSize = baseGridSize * zoom;
+        redraw();
+        updateZoomDisplay();
+    } else {
+        // If invalid input, reset to current zoom
+        updateZoomDisplay();
+    }
+}
+
 // Unified zoom controls
 function zoomIn() {
-    const newZoom = Math.min(3, zoom * 1.2);
+    // Increase zoom by 10 percentage points (0.1)
+    const newZoom = Math.min(3, zoom + 0.1);
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     const dx = centerX - panX;
@@ -979,7 +1242,8 @@ function zoomIn() {
 }
 
 function zoomOut() {
-    const newZoom = Math.max(0.1, zoom * 0.8);
+    // Decrease zoom by 10 percentage points (0.1)
+    const newZoom = Math.max(0.1, zoom - 0.1);
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     const dx = centerX - panX;
@@ -1355,6 +1619,22 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('zoomOutBtn')?.addEventListener('click', zoomOut);
     document.getElementById('resetZoomBtn')?.addEventListener('click', resetZoom);
     document.getElementById('centerBtn')?.addEventListener('click', centerMap);
+    
+    // Handle manual zoom level input
+    const zoomLevelInput = document.getElementById('zoomLevel');
+    if (zoomLevelInput) {
+        zoomLevelInput.addEventListener('blur', function() {
+            applyManualZoom(this.value);
+        });
+        
+        zoomLevelInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                applyManualZoom(this.value);
+                this.blur();
+            }
+        });
+    }
     
     // Sync map data between desktop and mobile textareas
     const mapDataInput = document.getElementById('mapData');
@@ -1780,7 +2060,7 @@ function updateZoomDisplay() {
     const zoomPercentage = Math.round(zoom * 100) + '%';
     
     if (zoomLevel) {
-        zoomLevel.textContent = zoomPercentage;
+        zoomLevel.value = zoomPercentage;
     }
 }
 
@@ -1924,7 +2204,7 @@ function updateGhostPreview(mouseX, mouseY) {
         if (selectedType === 'flag' || selectedType === 'obstacle') {
             width = 1;
             height = 1;
-        } else if (selectedType === 'city') {
+        } else if (selectedType === 'city' || selectedType === 'mine') {
             width = 2;
             height = 2;
         } else if (selectedType === 'building' || selectedType === 'hq' || selectedType === 'node') {
@@ -2207,13 +2487,61 @@ function updateCityList() {
         });
         li.appendChild(input);
 
+        // Create furnace level selector
+        const furnaceSelect = document.createElement('select');
+        furnaceSelect.className = 'border p-1 rounded text-xs';
+        furnaceSelect.style.width = '12ch';
+        
+        // Add furnace level options
+        const furnaceLevels = [
+            { value: 0, text: 'No Level' },
+            { value: 1, text: 'FC1' },
+            { value: 2, text: 'FC2' },
+            { value: 3, text: 'FC3' },
+            { value: 4, text: 'FC4' },
+            { value: 5, text: 'FC5' },
+            { value: 6, text: 'FC6' },
+            { value: 7, text: 'FC7' },
+            { value: 8, text: 'FC8' },
+            { value: 9, text: 'FC9' },
+            { value: 10, text: 'FC10' }
+        ];
+        
+        furnaceLevels.forEach(level => {
+            const option = document.createElement('option');
+            option.value = level.value;
+            option.textContent = level.text;
+            furnaceSelect.appendChild(option);
+        });
+        
+        // Set the current furnace level
+        furnaceSelect.value = city.furnaceLevel || 0;
+        
+        // Add event listener for changes
+        furnaceSelect.addEventListener('change', () => {
+            city.furnaceLevel = parseInt(furnaceSelect.value);
+            redraw();
+            markUnsavedChanges();
+        });
+        
+        li.appendChild(furnaceSelect);
+
         // Create mobile list item (clone of desktop)
         const mli = li.cloneNode(true);
+        
+        // Add event listeners to mobile list item
         mli.querySelector('input').addEventListener('change', (e) => {
             city.name = e.target.value;
             redraw();
             markUnsavedChanges();
-            updateCityList(); // Update both lists
+            updateCityList();
+        });
+        
+        // Add event listener to mobile furnace selector
+        mli.querySelector('select').addEventListener('change', (e) => {
+            city.furnaceLevel = parseInt(e.target.value);
+            redraw();
+            markUnsavedChanges();
         });
 
         // Add BT bubbles to both lists
@@ -2342,11 +2670,14 @@ function compressMap(entities) {
         }
 
         const type = entity.type === "flag" ? "000" :
-                    entity.type === "city" ? "001" : 
-                    entity.type === "building" ? "010" : 
-                    entity.type === "node" ? "011" : 
-                    entity.type === "hq" ? "101" : "100"; // obstacle
-
+                     entity.type === "city" ? "001" : 
+                     entity.type === "building" ? "010" : 
+                     entity.type === "node" ? "011" : 
+                     entity.type === "hq" ? "101" :
+                     entity.type === "mine" ? "110" : 
+                     "100"; // obstacle = "100"
+        
+        // Convert grid coordinates to positive values for storage
         const storageX = entity.x + gridCols;
         const storageY = entity.y + gridRows;
         const x = storageX.toString(2).padStart(10, "0");
@@ -2371,6 +2702,11 @@ function compressMap(entities) {
             const code = name.charCodeAt(i) & 0xFF;
             bitString += code.toString(2).padStart(8, "0");
             }
+            
+            // Add furnace level data for city (3 bits can represent 0-7)
+            const furnaceLevel = entity.furnaceLevel || 0;
+            const furnaceLevelBin = furnaceLevel.toString(2).padStart(3, "0");
+            bitString += furnaceLevelBin;
         }
         }
     });
@@ -2528,13 +2864,14 @@ function decompressNew(binaryString) {
         const yBits = binaryString.slice(i, i + 10);
         i += 10;
 
-        const type =
-        typeBits === "000" ? "flag" :
-        typeBits === "001" ? "city" :
-        typeBits === "010" ? "building" :
-        typeBits === "011" ? "node" :
-        typeBits === "101" ? "hq" : "obstacle";
-
+        const type = typeBits === "000" ? "flag" :
+                     typeBits === "001" ? "city" : 
+                     typeBits === "010" ? "building" : 
+                     typeBits === "011" ? "node" : 
+                     typeBits === "101" ? "hq" : 
+                     typeBits === "110" ? "mine" : "obstacle";
+        
+        // Convert back from storage coordinates
         const storageX = parseInt(xBits, 2);
         const storageY = parseInt(yBits, 2);
         const x = storageX - gridCols;
@@ -2543,61 +2880,74 @@ function decompressNew(binaryString) {
         const entity = { x, y, type };
 
         if (type === "flag") {
-        entity.width = 1;
-        entity.height = 1;
-        entity.color = "gray";
+            entity.width = 1;
+            entity.height = 1;
+            entity.color = "gray";
         } else if (type === "city") {
-        entity.width = 2;
-        entity.height = 2;
-        entity.color = getRandomColor();
+            entity.width = 2;
+            entity.height = 2;
+            entity.color = getRandomColor();
 
-        // read length byte (legacy length or 255 marker)
-        const lenByteRes = readUInt(binaryString, i, 8);
-        if (!lenByteRes.ok) break;
-        const lenByte = lenByteRes.value;
-        i = lenByteRes.next;
+            // read length byte (legacy length or 255 marker)
+            const lenByteRes = readUInt(binaryString, i, 8);
+            if (!lenByteRes.ok) break;
+            const lenByte = lenByteRes.value;
+            i = lenByteRes.next;
 
-        if (lenByte === 255) {
-            // UTF-8 name: 16-bit byte length + bytes
-            const len16Res = readUInt(binaryString, i, 16);
-            if (!len16Res.ok) break;
-            const byteLen = len16Res.value;
-            i = len16Res.next;
+            if (lenByte === 255) {
+                // UTF-8 name: 16-bit byte length + bytes
+                const len16Res = readUInt(binaryString, i, 16);
+                if (!len16Res.ok) break;
+                const byteLen = len16Res.value;
+                i = len16Res.next;
 
-            const bytesRes = readBytesFromBitString(binaryString, i, byteLen);
-            if (!bytesRes.ok) break;
-            i = bytesRes.next;
+                const bytesRes = readBytesFromBitString(binaryString, i, byteLen);
+                if (!bytesRes.ok) break;
+                i = bytesRes.next;
 
-            entity.name = _utf8Decoder.decode(bytesRes.bytes);
-        } else {
-            // Legacy name: lenByte latin-1 bytes
-            const bytesRes = readBytesFromBitString(binaryString, i, lenByte);
-            if (!bytesRes.ok) break;
-            i = bytesRes.next;
+                entity.name = _utf8Decoder.decode(bytesRes.bytes);
+            } else {
+                // Legacy name: lenByte latin-1 bytes
+                const bytesRes = readBytesFromBitString(binaryString, i, lenByte);
+                if (!bytesRes.ok) break;
+                i = bytesRes.next;
 
-            const arr = bytesRes.bytes;
-            let name = "";
-            for (let k = 0; k < arr.length; k++) {
-            name += String.fromCharCode(arr[k]);
+                const arr = bytesRes.bytes;
+                let name = "";
+                for (let k = 0; k < arr.length; k++) {
+                    name += String.fromCharCode(arr[k]);
+                }
+                entity.name = name;
             }
-            entity.name = name;
-        }
+            
+            // Read furnace level (3 bits)
+            if (i + 3 <= binaryString.length) {
+                const furnaceLevelBits = binaryString.slice(i, i + 3);
+                i += 3;
+                entity.furnaceLevel = parseInt(furnaceLevelBits, 2);
+            } else {
+                entity.furnaceLevel = 0;
+            }
         } else if (type === "building") {
-        entity.width = 3;
-        entity.height = 3;
-        entity.color = "black";
+            entity.width = 3;
+            entity.height = 3;
+            entity.color = "black";
         } else if (type === "hq") {
-        entity.width = 3;
-        entity.height = 3;
-        entity.color = "darkgoldenrod";
+            entity.width = 3;
+            entity.height = 3;
+            entity.color = "darkgoldenrod";
         } else if (type === "node") {
-        entity.width = 3;
-        entity.height = 3;
-        entity.color = "darkgreen";
+            entity.width = 3;
+            entity.height = 3;
+            entity.color = "darkgreen";
         } else if (type === "obstacle") {
-        entity.width = 1;
-        entity.height = 1;
-        entity.color = "#8B0000";
+            entity.width = 1;
+            entity.height = 1;
+            entity.color = "#8B0000";
+        } else if (type === "mine") {
+            entity.width = 2;
+            entity.height = 2;
+            entity.color = "purple";
         }
 
         entities.push(entity);
@@ -2767,14 +3117,19 @@ function downloadCanvasAsPNG() {
     const offscreenCanvas = document.createElement('canvas');
     const offscreenCtx = offscreenCanvas.getContext('2d');
 
-    // 3. Calculate the required canvas size
-    const padding = 60; // Add some padding around the entities
+    // Scale factor for higher resolution (2x for better text rendering)
+    const scaleFactor = 2;
     
-    // Calculate the corners of the bounding box in screen coordinates at zoom 1
-    const topLeft = diamondToScreenCorner(minX, minY, 0, 0, 1);
-    const topRight = diamondToScreenCorner(maxX, minY, 0, 0, 1);
-    const bottomLeft = diamondToScreenCorner(minX, maxY, 0, 0, 1);
-    const bottomRight = diamondToScreenCorner(maxX, maxY, 0, 0, 1);
+    // 3. Calculate the required canvas size
+    const padding = 60 * scaleFactor; // Scaled padding
+    
+    // Calculate the corners of the bounding box in screen coordinates at a higher zoom level
+    const exportZoom = 1 * scaleFactor; // Use scaleFactor for better resolution
+    
+    const topLeft = diamondToScreenCorner(minX, minY, 0, 0, exportZoom);
+    const topRight = diamondToScreenCorner(maxX, minY, 0, 0, exportZoom);
+    const bottomLeft = diamondToScreenCorner(minX, maxY, 0, 0, exportZoom);
+    const bottomRight = diamondToScreenCorner(maxX, maxY, 0, 0, exportZoom);
 
     const screenMinX = Math.min(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x);
     const screenMaxX = Math.max(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x);
@@ -2790,9 +3145,8 @@ function downloadCanvasAsPNG() {
     // 4. Calculate new pan values to center the content
     const exportPanX = -screenMinX + padding;
     const exportPanY = -screenMinY + padding;
-    const exportZoom = 1;
 
-    // 5. Redraw everything on the off-screen canvas
+    // 5. Redraw everything on the off-screen canvas with higher zoom
     drawDiamondGrid(offscreenCtx, exportPanX, exportPanY, exportZoom);
     drawEntities(offscreenCtx, exportPanX, exportPanY, exportZoom);
     drawAnchorSymbol(offscreenCtx, exportPanX, exportPanY, exportZoom);
@@ -2948,7 +3302,11 @@ function worldCoordToGrid(world, width=2, height=2){
   const wx = clamp1200 ? clamp1200(world.x) : world.x|0;
   const wy = clamp1200 ? clamp1200(world.y) : world.y|0;
 
-  // reverse of coordForCity function
+  // reverse of coordForCity function - fixed to properly reverse the operations
+  // In coordForCity: x = coordAnchor.x - dy and y = coordAnchor.y - dx
+  // So: dy = coordAnchor.x - x and dx = coordAnchor.y - y
+  // Thus: tipX = mid.x + dx = mid.x + (coordAnchor.y - wy)
+  // And:  tipY = mid.y + dy = mid.y + (coordAnchor.x - wx)
   const tipX = mid.x + (coordAnchor.y - wy);
   const tipY = mid.y + (coordAnchor.x - wx);
 
@@ -2968,27 +3326,62 @@ function importPlayerNamesCSV(text, { moveDefaultCities = false } = {}){
   const headers = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase());
   const idx = k => headers.indexOf(k);
 
+  // Get indices for all possible columns
+  const iType = idx('type');
   const iName = idx('name');
   const iX    = idx('x');
   const iY    = idx('y');
+  const iFurnaceLevel = idx('furnacelevel');
 
+  // Name and coordinates are required at minimum
   if (iName === -1) {
     alert('CSV must have at least a "name" column.');
     return;
   }
 
-  // load CSV
+  // Load CSV data
   const rows = [];
   for (let i = 1; i < lines.length; i++){
     const cols = splitCsvLine(lines[i]);
+    
+    // Get entity type, default to 'city' for backward compatibility
+    const type = (iType !== -1) ? (cols[iType] || '').trim().toLowerCase() : 'city';
+    if (!['city', 'flag', 'building', 'hq', 'node', 'obstacle', 'mine'].includes(type)) {
+      continue; // Skip invalid entity types
+    }
+    
     const name = (cols[iName] || '').trim();
     if (!name) continue;
+    
     const x = (iX !== -1) ? num(cols[iX]) : null;
     const y = (iY !== -1) ? num(cols[iY]) : null;
-    rows.push({ name, x, y });
+    
+    // Parse furnace level if available and entity is a city
+    const furnaceLevel = (type === 'city' && iFurnaceLevel !== -1) ? 
+      parseInt(cols[iFurnaceLevel]) || 0 : 0;
+    
+    // Set default width and height based on entity type
+    let width, height;
+    
+    if (type === 'city' || type === 'mine') {
+      width = 2;
+      height = 2;
+    } else if (type === 'flag' || type === 'obstacle') {
+      width = 1;
+      height = 1;
+    } else { // building, hq, node
+      width = 3;
+      height = 3;
+    }
+    
+    rows.push({ type, name, x, y, width, height, furnaceLevel });
   }
+  
   if (!rows.length) return;
 
+  // Process cities first - similar to original logic for backward compatibility
+  const cityRows = rows.filter(row => row.type === 'city');
+  
   // 1) Collect default cities (rename only)
   const defaultCities = entities
     .filter(e => e.type === 'city' && isDefaultCityName(e.name))
@@ -2996,31 +3389,74 @@ function importPlayerNamesCSV(text, { moveDefaultCities = false } = {}){
 
   let r = 0;
 
-  while (r < rows.length && defaultCities.length){
+  // Rename (and optionally move) existing default cities
+  while (r < cityRows.length && defaultCities.length){
     const city = defaultCities.shift();
-    const rec  = rows[r];
+    const rec  = cityRows[r];
 
-    // only rename
+    // Only rename
     city.name = rec.name;
+    
+    // Set furnace level if available
+    if (rec.furnaceLevel !== undefined) {
+      city.furnaceLevel = rec.furnaceLevel;
+    }
 
-    // only move if explicitly allowed
+    // Only move if explicitly allowed
     if (moveDefaultCities && Number.isFinite(rec.x) && Number.isFinite(rec.y)) {
-      const width = city.width || 2, height = city.height || 2;
+      const width = rec.width || city.width || 2;
+      const height = rec.height || city.height || 2;
       const g = worldCoordToGrid({ x: rec.x, y: rec.y }, width, height);
       const ok = (typeof isPositionValid !== 'function') ||
-                 isPositionValid(g.x, g.y, { x:g.x, y:g.y, width, height });
-      if (ok) { city.x = g.x; city.y = g.y; }
+                isPositionValid(g.x, g.y, { x:g.x, y:g.y, width, height });
+      if (ok) { 
+        city.x = g.x; 
+        city.y = g.y;
+        city.width = width;
+        city.height = height;
+      }
     }
 
     r++;
   }
   
-  // 2) Für übrig gebliebene Namen neue Städte anlegen
-  for (; r < rows.length; r++){
-    const rec = rows[r];
-    const width = 2, height = 2;
+  // 2) Create new entities for any remaining rows
+  for (const rec of [...cityRows.slice(r), ...rows.filter(row => row.type !== 'city')]) {
+    // Default dimensions based on entity type
+    let width, height, color;
+    
+    if (rec.type === 'city') {
+      width = rec.width || 2;
+      height = rec.height || 2;
+      // Always use random color for cities
+      color = (typeof getRandomColor === 'function') ? getRandomColor() : 'rgb(200,200,200)';
+    } else if (rec.type === 'flag') {
+      width = rec.width || 1;
+      height = rec.height || 1;
+      color = 'gray';
+    } else if (rec.type === 'building') {
+      width = rec.width || 3;
+      height = rec.height || 3;
+      color = 'black';
+    } else if (rec.type === 'hq') {
+      width = rec.width || 3;
+      height = rec.height || 3;
+      color = 'darkgoldenrod';
+    } else if (rec.type === 'node') {
+      width = rec.width || 3;
+      height = rec.height || 3;
+      color = 'darkgreen';
+    } else if (rec.type === 'obstacle') {
+      width = rec.width || 1;
+      height = rec.height || 1;
+      color = '#8B0000';
+    } else if (rec.type === 'mine') {
+      width = rec.width || 2;
+      height = rec.height || 2;
+      color = 'purple';
+    }
 
-    // Get target position (x,y only for new cities)
+    // Get target position
     let gx, gy;
     if (Number.isFinite(rec.x) && Number.isFinite(rec.y)) {
       const g = worldCoordToGrid({ x: rec.x, y: rec.y }, width, height);
@@ -3028,19 +3464,40 @@ function importPlayerNamesCSV(text, { moveDefaultCities = false } = {}){
         gx = g.x; gy = g.y;
       }
     }
+    
     if (!Number.isFinite(gx) || !Number.isFinite(gy)) {
       const spot = findFreeGridSpot(width, height);
       gx = spot.x; gy = spot.y;
     }
 
-    entities.push({
-      type: 'city',
-      id: (typeof cityCounterId !== 'undefined' ? cityCounterId++ : undefined),
-      name: rec.name,
-      x: gx, y: gy,
-      width, height,
-      color: (typeof getRandomColor === 'function' ? getRandomColor() : 'rgb(200,200,200)')
-    });
+    // Create new entity
+    const newEntity = {
+      type: rec.type,
+      x: gx, 
+      y: gy,
+      width,
+      height,
+      color
+    };
+    
+    // Set furnace level if it's a city
+    if (rec.type === 'city' && rec.furnaceLevel !== undefined) {
+      newEntity.furnaceLevel = rec.furnaceLevel;
+    }
+    
+    // Add type-specific properties
+    if (rec.type === 'city') {
+      newEntity.id = (typeof cityCounterId !== 'undefined' ? cityCounterId++ : undefined);
+      newEntity.name = rec.name;
+    }
+    
+    // Add the entity
+    entities.push(newEntity);
+    
+    // Add bear traps to their special array
+    if (rec.type === 'building') {
+      bearTraps.push(newEntity);
+    }
   }
 
   try { redraw(); } catch(e) { console.error("Redraw failed:", e); }  
@@ -3057,19 +3514,53 @@ function importPlayerNamesCSV(text, { moveDefaultCities = false } = {}){
 ========================= */
 function exportPlayerNamesCSV({ onlyNamed = false } = {}) {
   if (preventActionOnEmptyMap("exporting to CSV")) return;
-  const rows = ['name,x,y'];
+  const rows = ['type,name,x,y,furnaceLevel'];
 
-  const cities = entities
-    .filter(e => e.type === 'city')
-    .sort((a,b) => (a.id||0) - (b.id||0));
+  // Sort entities by type and ID
+  const sortedEntities = [...entities].sort((a, b) => {
+    if (a.type !== b.type) {
+      // Order by entity type: city, flag, building, hq, node, obstacle
+      const typeOrder = { city: 1, flag: 2, building: 3, hq: 4, node: 5, obstacle: 6 };
+      return typeOrder[a.type] - typeOrder[b.type];
+    }
+    // Within same type, sort by ID if available
+    return (a.id || 0) - (b.id || 0);
+  });
 
-  for (const c of cities) {
-    const rawName = (c.name && c.name.trim()) ? c.name.trim() : `City ${c.id ?? ''}`.trim();
-    if (onlyNamed && isDefaultCityName(rawName)) continue;
+  for (const entity of sortedEntities) {
+    // Skip unnamed cities if onlyNamed is true
+    if (onlyNamed && entity.type === 'city' && isDefaultCityName(entity.name || `City ${entity.id ?? ''}`)) {
+      continue;
+    }
 
-    const world = coordForCity(c);
-    const safeName = `"${rawName.replace(/"/g,'""')}"`;
-    rows.push([safeName, world.x, world.y].join(','));
+    let name = '';
+    if (entity.type === 'city') {
+      name = (entity.name && entity.name.trim()) ? entity.name.trim() : `City ${entity.id ?? ''}`.trim();
+    } else if (entity.type === 'building') {
+      name = 'Bear Trap';
+    } else if (entity.type === 'flag') {
+      name = 'Flag';
+    } else if (entity.type === 'hq') {
+      name = 'HQ';
+    } else if (entity.type === 'node') {
+      name = 'Alliance Node';
+    } else if (entity.type === 'obstacle') {
+      name = 'Obstacle';
+    } else if (entity.type === 'mine') {
+      name = 'Alliance Mine';
+    }
+
+    const world = coordForCity(entity); // This works for all entity types
+    const safeName = `"${name.replace(/"/g,'""')}"`;
+    const furnaceLevel = entity.type === 'city' ? (entity.furnaceLevel || 0) : '';
+    
+    rows.push([
+      entity.type,
+      safeName, 
+      world.x, 
+      world.y,
+      furnaceLevel
+    ].join(','));
   }
 
   const csv = rows.join('\n');
@@ -3134,7 +3625,7 @@ function exportPlayerNamesCSV({ onlyNamed = false } = {}) {
             const now = Date.now();
             if (now - lastTapTime < 350){
                 const prevZoom = zoom;
-                const newZoom = Math.min(3, zoom * 1.35);
+                const newZoom = Math.min(3, zoom + 0.1); // Add 10 percentage points
                 const dx = t0.x - panX;
                 const dy = t0.y - panY;
                 panX = t0.x - dx * (newZoom / prevZoom);
